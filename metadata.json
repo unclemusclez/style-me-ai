@@ -1,0 +1,8 @@
+{
+  "name": "Style Me AI",
+  "description": "An AI-powered virtual fitting room that uses voice commands to generate images of you in different clothing styles.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
