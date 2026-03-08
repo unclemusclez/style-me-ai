@@ -4,8 +4,6 @@ Veena Vijay - vijayveen@gmail.com
 Sri Bhuvana Vaishnavi Dasika - sd3971@columbia.edu | dasikavaishnavi@gmail.com
 Prisma Lopez - zznailmail@gmail.com
 
-# [Presentation](https://docs.google.com/presentation/d/1b7BIzjtkxMZcUScDDkAWODM3zTgO5PAR/edit?usp=sharing&ouid=110617540760124990771&rtpof=true&sd=true)
-
 # AI Virtual Stylist
 
 A real-time, voice-activated virtual stylist application that uses your webcam and Google's Gemini AI to generate personalized outfits and backgrounds. Talk to the stylist, upload inspiration images, and see yourself transformed into new characters and eras.

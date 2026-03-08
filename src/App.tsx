@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, Mic, MicOff, Loader2, Image as ImageIcon, Download, Upload, X } from 'lucide-react';
+import { Camera, Mic, MicOff, Loader2, Image as ImageIcon, Download, Upload, X, Play, Pause, Music } from 'lucide-react';
 import { GoogleGenAI, Type, LiveServerMessage, Modality } from '@google/genai';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -50,13 +50,23 @@ export default function App() {
   const videoIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [generatedAudio, setGeneratedAudio] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [statusText, setStatusText] = useState("Ready to style");
   const [characterInfo, setCharacterInfo] = useState<{name: string, bio: string, circa: string} | null>(null);
   
   const [inspirationImage, setInspirationImage] = useState<string | null>(null);
   const [inspirationMode, setInspirationMode] = useState<'clothing' | 'background'>('clothing');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    if (generatedAudio && audioRef.current) {
+      audioRef.current.play().catch(e => console.error("Autoplay prevented:", e));
+    }
+  }, [generatedAudio]);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -175,8 +185,74 @@ export default function App() {
     }
   }, []);
 
+  const generateLyriaAudio = async (styleDescription?: string, backgroundDescription?: string) => {
+    const apiKey = import.meta.env.VITE_LYRIA_API_KEY;
+    if (!apiKey) {
+      console.warn("Lyria API key not found. Please set VITE_LYRIA_API_KEY in your environment variables.");
+      return;
+    }
+    
+    setIsGeneratingAudio(true);
+    try {
+      const audioPrompt = `A thematic background soundtrack for a character wearing ${styleDescription || 'casual clothes'} in a ${backgroundDescription || 'neutral environment'}.`;
+      
+      // Using the API structure provided, targeting the lyria model
+      // Note: We use generateContent instead of streamGenerateContent to get the complete audio file
+      const modelName = "lyria-2"; // Adjust this if the exact model name differs
+      const url = `https://aiplatform.googleapis.com/v1/publishers/google/models/${modelName}:generateContent?key=${apiKey}`;
+      
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { text: audioPrompt }
+              ]
+            }
+          ]
+        })
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API Error ${response.status}: ${errorText}`);
+      }
+      
+      const data = await response.json();
+      
+      // Extract the audio from the response (assuming standard Gemini API response format with inlineData)
+      let audioBase64 = null;
+      let mimeType = "audio/mpeg";
+      
+      const parts = data.candidates?.[0]?.content?.parts || [];
+      for (const part of parts) {
+        if (part.inlineData && part.inlineData.mimeType?.startsWith('audio/')) {
+          audioBase64 = part.inlineData.data;
+          mimeType = part.inlineData.mimeType;
+          break;
+        }
+      }
+      
+      if (audioBase64) {
+        setGeneratedAudio(`data:${mimeType};base64,${audioBase64}`);
+      } else {
+        console.error("No audio data found in the response:", data);
+      }
+    } catch (err) {
+      console.error("Error generating audio:", err);
+    } finally {
+      setIsGeneratingAudio(false);
+    }
+  };
+
   const generateImage = async (styleDescription?: string, backgroundDescription?: string) => {
     setIsGenerating(true);
+    setGeneratedAudio(null); // Reset audio for new image
     try {
       if (!videoRef.current || !canvasRef.current) {
         throw new Error("Video or canvas not ready");
@@ -254,7 +330,9 @@ export default function App() {
         }
       }
       
-      if (!imageFound) {
+      if (imageFound) {
+        generateLyriaAudio(styleDescription, backgroundDescription);
+      } else {
         console.error("No image returned by the model. Response:", response);
         setStatusText("Failed to generate image. Try a different prompt.");
       }
@@ -582,7 +660,43 @@ export default function App() {
                       <h2 className="text-2xl font-serif font-medium">{characterInfo.name}</h2>
                       <span className="text-sm font-mono text-neutral-300">{characterInfo.circa}</span>
                     </div>
-                    <p className="text-sm text-neutral-200 leading-relaxed">{characterInfo.bio}</p>
+                    <p className="text-sm text-neutral-200 leading-relaxed mb-4">{characterInfo.bio}</p>
+                    
+                    {isGeneratingAudio ? (
+                      <div className="flex items-center gap-2 text-xs text-neutral-400">
+                        <div className="w-3 h-3 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
+                        Generating thematic soundtrack with Lyria...
+                      </div>
+                    ) : generatedAudio ? (
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => {
+                            if (audioRef.current) {
+                              if (isPlayingAudio) {
+                                audioRef.current.pause();
+                              } else {
+                                audioRef.current.play();
+                              }
+                            }
+                          }}
+                          className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-full text-sm font-medium transition-colors border border-white/10 backdrop-blur-md"
+                        >
+                          {isPlayingAudio ? <Pause size={16} /> : <Play size={16} />}
+                          {isPlayingAudio ? "Pause Soundtrack" : "Play Soundtrack"}
+                        </button>
+                        <audio 
+                          ref={audioRef} 
+                          src={generatedAudio} 
+                          autoPlay 
+                          onPlay={() => setIsPlayingAudio(true)}
+                          onPause={() => setIsPlayingAudio(false)}
+                          onEnded={() => setIsPlayingAudio(false)}
+                          className="hidden"
+                        >
+                          Your browser does not support the audio element.
+                        </audio>
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </div>
