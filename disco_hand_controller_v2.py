@@ -116,7 +116,7 @@ from typing import Optional, List
 # ── Google Gemini ─────────────────────────────────────────────────────────────
 try:
     import google.generativeai as genai
-    GEMINI_KEY = os.environ.get("AIzaSyCma6j22TDoMYzhJs0eWNpF_5yF9EnpiK8", "")
+    GEMINI_KEY = os.environ.get("apikey", "")
     if not GEMINI_KEY:
         print("[AI] ⚠️  GEMINI_API_KEY not set. AI suggestions disabled.")
         print("       export GEMINI_API_KEY='AIza...'")
