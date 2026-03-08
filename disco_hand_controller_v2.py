@@ -4,16 +4,17 @@
 ║                                                                      ║
 ║  Conduct your light show like an opera maestro!                      ║
 ║  • MediaPipe Hands (compatible with 0.10.30+)                        ║
-║  • Anthropic Claude — reads your gesture sequence & mood             ║
+║  • Google Gemini API — reads your gesture sequence & mood            ║
 ║    to generate intelligent lighting/effect suggestions               ║
 ║  • 18 distinct hand gestures + velocity / trajectory tracking        ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
 INSTALL:
-    pip install mediapipe>=0.10.30 opencv-python pygame numpy anthropic
+    pip install mediapipe>=0.10.30 opencv-python pygame numpy google-generativeai
 
 SET YOUR API KEY (one-time):
-    export ANTHROPIC_API_KEY="sk-ant-..."
+    export GEMINI_API_KEY="AIza..."
+    Get a free key at: https://aistudio.google.com/apikey
 
 RUN:
     python disco_hand_controller_v2.py /path/to/track.mp3
@@ -27,7 +28,7 @@ RIGHT HAND (primary conductor):
   👊 Fist               → Bass boost  +  red strobe
   ☝️  Point (index up)   → Volume = hand height  /  BPM warp
   ✌️  Peace              → Blue chill mode
-  🤙 Call-me (🤙)       → Rainbow beat-sync
+  🤙 Call-me            → Rainbow beat-sync
   🤌 Pinch              → Crossfade brightness
   👍 Thumbs-up          → Pump up energy (gold flash)
   👎 Thumbs-down        → Fade out / dim
@@ -55,15 +56,15 @@ VELOCITY gestures:
   Fast swipe UP     → Strobe burst
   Fast swipe DOWN   → Blackout 1s
 
-AI MAESTRO (Claude):
-  Every ~8 seconds Claude reads your recent gesture history + current
+AI MAESTRO (Gemini):
+  Every ~8 seconds Gemini reads your recent gesture history + current
   state and suggests the optimal lighting/effect update. The suggestion
   is applied automatically and shown on the HUD. Press 'A' to force-
   trigger an AI analysis at any time.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
-# ── Compatibility shim for mediapipe 0.10.30+ ──────────────────────────────
+# ── Compatibility shim for mediapipe 0.10.30+ ─────────────────────────────────
 import importlib, sys, types
 
 def _get_mp_solutions():
@@ -72,22 +73,18 @@ def _get_mp_solutions():
     This shim works on all versions from 0.10.0 → 0.10.32+
     """
     import mediapipe as mp
-    # Try the classic path first
     if hasattr(mp, "solutions"):
         return mp.solutions
-    # New path
     try:
         from mediapipe.python import solutions as sol
-        # Monkey-patch so the rest of the code can use mp.solutions
         mp.solutions = sol
         return sol
     except ImportError:
         pass
-    # Final fallback: direct submodule import
     try:
-        import mediapipe.python.solutions.hands          # noqa
-        import mediapipe.python.solutions.drawing_utils  # noqa
-        import mediapipe.python.solutions.drawing_styles # noqa
+        import mediapipe.python.solutions.hands
+        import mediapipe.python.solutions.drawing_utils
+        import mediapipe.python.solutions.drawing_styles
         sol_mod = types.SimpleNamespace(
             hands          = importlib.import_module("mediapipe.python.solutions.hands"),
             drawing_utils  = importlib.import_module("mediapipe.python.solutions.drawing_utils"),
@@ -102,43 +99,50 @@ def _get_mp_solutions():
         sys.exit(1)
 
 import mediapipe as _mp_raw
-_solutions = _get_mp_solutions()
+_solutions    = _get_mp_solutions()
 mp_hands_mod  = _solutions.hands
 mp_draw_mod   = _solutions.drawing_utils
 mp_styles_mod = _solutions.drawing_styles
 
-# ── Standard imports ────────────────────────────────────────────────────────
+# ── Standard imports ──────────────────────────────────────────────────────────
 import cv2
 import numpy as np
 import pygame
 import os, math, time, threading, queue, json
 from collections import deque
-from dataclasses import dataclass, field
-from typing import Optional, List, Dict
+from dataclasses import dataclass
+from typing import Optional, List
 
-# ── Anthropic ───────────────────────────────────────────────────────────────
+# ── Google Gemini ─────────────────────────────────────────────────────────────
 try:
-    import anthropic
-    ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not ANTHROPIC_KEY:
-        print("[AI] ⚠️  ANTHROPIC_API_KEY not set. AI suggestions disabled.")
-        print("       export ANTHROPIC_API_KEY='sk-ant-...'")
-    AI_ENABLED = bool(ANTHROPIC_KEY)
-    ai_client  = anthropic.Anthropic(api_key=ANTHROPIC_KEY) if AI_ENABLED else None
+    import google.generativeai as genai
+    GEMINI_KEY = os.environ.get("AIzaSyCma6j22TDoMYzhJs0eWNpF_5yF9EnpiK8", "")
+    if not GEMINI_KEY:
+        print("[AI] ⚠️  GEMINI_API_KEY not set. AI suggestions disabled.")
+        print("       export GEMINI_API_KEY='AIza...'")
+        print("       Get a free key: https://aistudio.google.com/apikey")
+    AI_ENABLED = bool(GEMINI_KEY)
+    if AI_ENABLED:
+        genai.configure(api_key=GEMINI_KEY)
+        ai_client = genai.GenerativeModel("gemini-1.5-flash")
+        print("[AI] ✓ Google Gemini connected (gemini-1.5-flash)")
+    else:
+        ai_client = None
 except ImportError:
-    print("[AI] anthropic package not installed. pip install anthropic")
+    print("[AI] google-generativeai not installed.")
+    print("     pip install google-generativeai")
     AI_ENABLED = False
     ai_client  = None
 
-# ── Config ──────────────────────────────────────────────────────────────────
-CAMERA_INDEX     = 0
-WINDOW_NAME      = "DISCO MAESTRO v2  |  AI Conductor"
-FRAME_W, FRAME_H = 1280, 720
-MIN_VOL, MAX_VOL = 0.0, 1.0
-AI_INTERVAL_SEC  = 8      # How often Claude analyses gestures (seconds)
-GESTURE_HISTORY_LEN = 40  # Gesture log kept for AI context
+# ── Config ────────────────────────────────────────────────────────────────────
+CAMERA_INDEX        = 0
+WINDOW_NAME         = "DISCO MAESTRO v2  |  Gemini AI Conductor"
+FRAME_W, FRAME_H    = 1280, 720
+MIN_VOL, MAX_VOL    = 0.0, 1.0
+AI_INTERVAL_SEC     = 8       # How often Gemini analyses gestures (seconds)
+GESTURE_HISTORY_LEN = 40      # Gesture log kept for AI context
 
-# ── Color themes (BGR) ──────────────────────────────────────────────────────
+# ── Color themes (BGR) ────────────────────────────────────────────────────────
 THEMES = [
     ("rainbow",  None),
     ("fire",     (30,  60,  220)),
@@ -152,17 +156,17 @@ THEMES = [
 ]
 _theme_idx = 0
 
-def next_theme():
+def next_theme() -> str:
     global _theme_idx
     _theme_idx = (_theme_idx + 1) % len(THEMES)
     return THEMES[_theme_idx][0]
 
-def prev_theme():
+def prev_theme() -> str:
     global _theme_idx
     _theme_idx = (_theme_idx - 1) % len(THEMES)
     return THEMES[_theme_idx][0]
 
-# ── State ────────────────────────────────────────────────────────────────────
+# ── State dataclass ───────────────────────────────────────────────────────────
 @dataclass
 class DiscoState:
     volume:          float = 0.8
@@ -177,24 +181,22 @@ class DiscoState:
     ambient:         bool  = False
     flash:           bool  = False
     blackout:        bool  = False
-    energy_level:    float = 0.5    # 0–1 overall scene energy
+    energy_level:    float = 0.5
     last_gesture:    str   = "---"
-    ai_suggestion:   str   = "Waiting for AI..."
+    ai_suggestion:   str   = "Waiting for Gemini..."
     right_hand_pos:  tuple = (0.5, 0.5)
     left_hand_pos:   tuple = (0.5, 0.5)
     right_velocity:  tuple = (0.0, 0.0)
     left_velocity:   tuple = (0.0, 0.0)
-    palm_area_right: float = 0.0   # proxy for Z-depth
+    palm_area_right: float = 0.0
 
 state = DiscoState()
 
-# ── Gesture history for AI ────────────────────────────────────────────────────
-gesture_log: deque = deque(maxlen=GESTURE_HISTORY_LEN)
-
-# ── AI suggestion queue ───────────────────────────────────────────────────────
+# ── Gesture history & AI queue ────────────────────────────────────────────────
+gesture_log: deque    = deque(maxlen=GESTURE_HISTORY_LEN)
 ai_queue: queue.Queue = queue.Queue(maxsize=2)
 
-# ── Lighting ─────────────────────────────────────────────────────────────────
+# ── Lighting helpers ──────────────────────────────────────────────────────────
 _rainbow_hue = 0.0
 
 def hsv_bgr(hue: float) -> tuple:
@@ -211,7 +213,7 @@ def hsv_bgr(hue: float) -> tuple:
 def get_light_color() -> tuple:
     global _rainbow_hue
     if state.color_mode == "rainbow":
-        speed = 1.5 + state.energy_level * 4.0
+        speed        = 1.5 + state.energy_level * 4.0
         _rainbow_hue = (_rainbow_hue + speed) % 360
         return hsv_bgr(_rainbow_hue)
     for name, bgr in THEMES:
@@ -238,7 +240,6 @@ def apply_lighting_overlay(frame: np.ndarray) -> np.ndarray:
         white = np.full_like(frame, (255, 255, 255), dtype=np.uint8)
         cv2.addWeighted(white, 0.55, frame, 0.45, 0, frame)
 
-    # Energy pulse ring
     if state.energy_level > 0.7:
         cx, cy = FRAME_W // 2, FRAME_H // 2
         r = int(80 + state.energy_level * 200)
@@ -248,79 +249,55 @@ def apply_lighting_overlay(frame: np.ndarray) -> np.ndarray:
     return frame
 
 # ── Geometry helpers ──────────────────────────────────────────────────────────
-def fingers_up(lm_list) -> List[bool]:
-    tips   = [4, 8, 12, 16, 20]
-    joints = [3, 6, 10, 14, 18]
-    up = [lm_list[tips[0]].x < lm_list[joints[0]].x]
+def fingers_up(lm) -> List[bool]:
+    tips, joints = [4, 8, 12, 16, 20], [3, 6, 10, 14, 18]
+    up = [lm[tips[0]].x < lm[joints[0]].x]
     for i in range(1, 5):
-        up.append(lm_list[tips[i]].y < lm_list[joints[i]].y)
+        up.append(lm[tips[i]].y < lm[joints[i]].y)
     return up
 
-def pinch_dist(lm_list) -> float:
-    dx = lm_list[4].x - lm_list[8].x
-    dy = lm_list[4].y - lm_list[8].y
+def pinch_dist(lm) -> float:
+    dx = lm[4].x - lm[8].x
+    dy = lm[4].y - lm[8].y
     return math.sqrt(dx*dx + dy*dy)
 
-def palm_area(lm_list) -> float:
-    """Rough palm bounding box area as Z-depth proxy."""
-    xs = [lm_list[i].x for i in [0,1,5,9,13,17]]
-    ys = [lm_list[i].y for i in [0,1,5,9,13,17]]
-    return (max(xs)-min(xs)) * (max(ys)-min(ys))
+def palm_area(lm) -> float:
+    xs = [lm[i].x for i in [0, 1, 5, 9, 13, 17]]
+    ys = [lm[i].y for i in [0, 1, 5, 9, 13, 17]]
+    return (max(xs) - min(xs)) * (max(ys) - min(ys))
 
-def wrist(lm_list) -> tuple:
-    return (lm_list[0].x, lm_list[0].y)
-
-def finger_angle(lm_list, tip, mid, base) -> float:
-    """Angle at mid between base→mid→tip (degrees)."""
-    def v(a, b): return (lm_list[b].x-lm_list[a].x, lm_list[b].y-lm_list[a].y)
-    v1, v2 = v(mid, base), v(mid, tip)
-    dot = v1[0]*v2[0] + v1[1]*v2[1]
-    m1  = math.sqrt(v1[0]**2+v1[1]**2)+1e-6
-    m2  = math.sqrt(v2[0]**2+v2[1]**2)+1e-6
-    return math.degrees(math.acos(max(-1, min(1, dot/(m1*m2)))))
+def wrist(lm) -> tuple:
+    return (lm[0].x, lm[0].y)
 
 # ── Gesture classifier (18 gestures) ─────────────────────────────────────────
 def classify_gesture(hand_lm) -> str:
-    lm   = hand_lm.landmark
-    up   = fingers_up(lm)
-    pinch= pinch_dist(lm)
-    n    = sum(up)
-
+    lm                        = hand_lm.landmark
+    up                        = fingers_up(lm)
+    pinch                     = pinch_dist(lm)
+    n                         = sum(up)
     thumb, idx, mid, ring, pinky = up
 
-    # Exact finger combos
-    if n == 0:                                        return "fist"
-    if n == 5:                                        return "open_hand"
+    if n == 0:                                                   return "fist"
+    if n == 5:                                                   return "open_hand"
     if idx and not mid and not ring and not pinky:
-        if thumb:                                     return "point_thumb"  # gun
-        return "point"
+        return "point_thumb" if thumb else "point"
     if idx and mid and not ring and not pinky:
-        if thumb:                                     return "three_fingers"
-        return "peace"
-    if idx and mid and ring and not pinky:            return "three_fingers"
-    if idx and mid and ring and pinky and not thumb:  return "four_fingers"
+        return "three_fingers" if thumb else "peace"
+    if idx and mid and ring and not pinky:                       return "three_fingers"
+    if idx and mid and ring and pinky and not thumb:             return "four_fingers"
     if thumb and not idx and not mid and not ring and not pinky: return "thumbs_up"
     if not thumb and idx and not mid and not ring and pinky:     return "call_me"
     if thumb and idx and mid and not ring and not pinky:         return "ok_three"
-
-    # Vulcan salute: idx+mid up, ring+pinky up, gap between
     if idx and mid and ring and pinky:
-        gap = abs(lm[8].x - lm[12].x)
-        if gap > 0.06:                                return "vulcan"
-
-    if pinch < 0.04:                                  return "pinch"
-
-    # Thumbs down: thumb pointing down (y high), others curled
-    if thumb and lm[4].y > lm[3].y and n == 1:       return "thumbs_down"
-
-    # Crossed fingers: idx over mid
-    if idx and mid and lm[8].x > lm[12].x:           return "crossed"
-
+        if abs(lm[8].x - lm[12].x) > 0.06:                     return "vulcan"
+    if pinch < 0.04:                                             return "pinch"
+    if thumb and lm[4].y > lm[3].y and n == 1:                  return "thumbs_down"
+    if idx and mid and lm[8].x > lm[12].x:                      return "crossed"
     return "partial"
 
-# ── Velocity / trajectory tracker ────────────────────────────────────────────
+# ── Velocity / swipe tracker ──────────────────────────────────────────────────
 class VelocityTracker:
-    def __init__(self, window=6):
+    def __init__(self, window: int = 6):
         self.hist = deque(maxlen=window)
         self.t    = deque(maxlen=window)
 
@@ -331,67 +308,59 @@ class VelocityTracker:
         if len(self.hist) < 2:
             return (0.0, 0.0)
         dt = self.t[-1] - self.t[-2] + 1e-6
-        vx = (self.hist[-1][0] - self.hist[-2][0]) / dt
-        vy = (self.hist[-1][1] - self.hist[-2][1]) / dt
-        return (vx, vy)
+        return ((self.hist[-1][0] - self.hist[-2][0]) / dt,
+                (self.hist[-1][1] - self.hist[-2][1]) / dt)
 
-    def swipe(self, threshold=1.2) -> Optional[str]:
-        """Detect fast swipe direction over recent history."""
+    def swipe(self, threshold: float = 1.2) -> Optional[str]:
         if len(self.hist) < 4:
             return None
-        dx = self.hist[-1][0] - self.hist[0][0]
-        dy = self.hist[-1][1] - self.hist[0][1]
-        dt = self.t[-1]  - self.t[0]  + 1e-6
+        dx  = self.hist[-1][0] - self.hist[0][0]
+        dy  = self.hist[-1][1] - self.hist[0][1]
+        dt  = self.t[-1] - self.t[0] + 1e-6
         spd = math.sqrt(dx*dx + dy*dy) / dt
         if spd < threshold:
             return None
         if abs(dx) > abs(dy):
             return "swipe_right" if dx > 0 else "swipe_left"
-        else:
-            return "swipe_down"  if dy > 0 else "swipe_up"
+        return "swipe_down" if dy > 0 else "swipe_up"
 
 r_tracker = VelocityTracker()
 l_tracker = VelocityTracker()
 
-# ── Main gesture → state mapping ──────────────────────────────────────────────
+# ── Gesture → state mapping ───────────────────────────────────────────────────
 _blackout_until = 0.0
 _last_swipe_t   = 0.0
 
-def update_state_from_gestures(result, frame_h, frame_w):
+def update_state_from_gestures(result, frame_h: int, frame_w: int):
     global state, _blackout_until, _last_swipe_t
 
-    # Clear flash each frame
     state.flash = False
-
-    # Lift blackout
     if time.time() > _blackout_until:
         state.blackout = False
 
     if not result.multi_hand_landmarks:
-        state.bass_boost   = False
-        state.treble_boost = False
-        state.strobe_hz    = 0.0
+        state.bass_boost = state.treble_boost = False
+        state.strobe_hz  = 0.0
         return
 
-    right_lm = left_lm = None
-    right_g  = left_g  = None
+    right_lm = left_lm = right_g = left_g = None
 
     for idx, hand_info in enumerate(result.multi_handedness):
         label = hand_info.classification[0].label
         lm    = result.multi_hand_landmarks[idx]
         if label == "Right":
-            right_lm = lm
-            right_g  = classify_gesture(lm)
+            right_lm              = lm
+            right_g               = classify_gesture(lm)
             state.right_hand_pos  = wrist(lm.landmark)
             state.right_velocity  = r_tracker.update(state.right_hand_pos)
             state.palm_area_right = palm_area(lm.landmark)
         else:
-            left_lm = lm
-            left_g  = classify_gesture(lm)
+            left_lm              = lm
+            left_g               = classify_gesture(lm)
             state.left_hand_pos  = wrist(lm.landmark)
             state.left_velocity  = l_tracker.update(state.left_hand_pos)
 
-    # ── Swipe detection (right hand) ───────────────────────────────────────
+    # ── Swipe detection ───────────────────────────────────────────────────
     swipe = r_tracker.swipe()
     now   = time.time()
     if swipe and (now - _last_swipe_t) > 0.5:
@@ -417,13 +386,12 @@ def update_state_from_gestures(result, frame_h, frame_w):
             gesture_log.append("swipe_down→blackout")
         return
 
-    # ── RIGHT HAND ─────────────────────────────────────────────────────────
+    # ── RIGHT HAND ────────────────────────────────────────────────────────
     if right_lm:
-        rx, ry = state.right_hand_pos
-        state.volume = max(MIN_VOL, min(MAX_VOL, 1.0 - ry))
-        state.pan    = (rx - 0.5) * 2.0
-        # Palm area → bass (close) / treble (far)
-        pa = state.palm_area_right
+        rx, ry             = state.right_hand_pos
+        state.volume       = max(MIN_VOL, min(MAX_VOL, 1.0 - ry))
+        state.pan          = (rx - 0.5) * 2.0
+        pa                 = state.palm_area_right
         state.bass_boost   = pa > 0.04
         state.treble_boost = pa < 0.01
         state.energy_level = min(1.0, pa * 12 + (1.0 - ry) * 0.5)
@@ -454,8 +422,7 @@ def update_state_from_gestures(result, frame_h, frame_w):
             state.beat_sync    = True
             state.last_gesture = "🤙 BEAT SYNC"
         elif g == "pinch":
-            dist = pinch_dist(right_lm.landmark)
-            state.brightness   = min(1.0, dist * 8)
+            state.brightness   = min(1.0, pinch_dist(right_lm.landmark) * 8)
             state.last_gesture = f"🤌 PINCH BRIGHT {state.brightness*100:.0f}%"
         elif g == "thumbs_up":
             state.energy_level = min(1.0, state.energy_level + 0.2)
@@ -491,11 +458,10 @@ def update_state_from_gestures(result, frame_h, frame_w):
         state.treble_boost = False
         state.strobe_hz    = 0.0
 
-    # ── LEFT HAND ──────────────────────────────────────────────────────────
+    # ── LEFT HAND ─────────────────────────────────────────────────────────
     if left_lm:
         g = left_g
         gesture_log.append(f"L:{g}")
-
         if g == "open_hand":
             state.color_mode   = "rainbow"
             state.flash        = True
@@ -515,7 +481,7 @@ def update_state_from_gestures(result, frame_h, frame_w):
             state.ambient      = True
             state.last_gesture = "🤌 OCEAN AMBIENT"
 
-    # ── Both hands open → FULL DISCO ───────────────────────────────────────
+    # ── Both open → FULL DISCO ────────────────────────────────────────────
     if right_lm and left_lm and right_g == "open_hand" and left_g == "open_hand":
         state.color_mode   = "rainbow"
         state.strobe_hz    = 10.0
@@ -527,80 +493,81 @@ def update_state_from_gestures(result, frame_h, frame_w):
         gesture_log.append("both_open→FULL_DISCO")
 
 
-# ── AI Maestro (Anthropic) ────────────────────────────────────────────────────
+# ── Google Gemini AI Maestro ──────────────────────────────────────────────────
 _last_ai_call = 0.0
 
 def build_ai_prompt() -> str:
     recent = list(gesture_log)[-20:]
-    return f"""You are the AI Maestro for a disco light show controller.
+    return f"""You are the AI Maestro for a real-time disco light show controller.
 
 Current show state:
-- Color mode: {state.color_mode}
-- Volume: {state.volume*100:.0f}%
-- Brightness: {state.brightness*100:.0f}%
-- Strobe: {state.strobe_hz} Hz
+- Color mode:   {state.color_mode}
+- Volume:       {state.volume*100:.0f}%
+- Brightness:   {state.brightness*100:.0f}%
+- Strobe:       {state.strobe_hz} Hz
 - Energy level: {state.energy_level:.2f}
-- Bass boost: {state.bass_boost}
-- Beat sync: {state.beat_sync}
-- BPM warp: {state.bpm_warp:.2f}x
+- Bass boost:   {state.bass_boost}
+- Beat sync:    {state.beat_sync}
+- BPM warp:     {state.bpm_warp:.2f}x
+- Pan:          {state.pan:+.2f}
 
-Recent gestures (last 20): {recent}
+Recent conductor gestures (last 20): {recent}
 
-Based on the conductor's gesture pattern and current state, suggest the single best lighting/effect update to make the show more dramatic and cohesive. 
+Analyse the gesture pattern and current state. Suggest the single best
+lighting/effect update to make the show more dramatic and cohesive right now.
 
-Respond ONLY with a JSON object — no preamble, no markdown:
+Respond ONLY with a valid JSON object — no preamble, no markdown fences:
 {{
-  "color_mode": "<one of: rainbow|fire|ocean|forest|cosmic|gold|pink|arctic|void>",
-  "strobe_hz": <0-20 float>,
-  "brightness": <0.1-1.0 float>,
-  "energy_level": <0.0-1.0 float>,
-  "flash": <true|false>,
-  "beat_sync": <true|false>,
-  "suggestion_text": "<20 word max human-readable description of what you're doing and why>"
+  "color_mode":      "<rainbow|fire|ocean|forest|cosmic|gold|pink|arctic|void>",
+  "strobe_hz":       <0-20 float>,
+  "brightness":      <0.1-1.0 float>,
+  "energy_level":    <0.0-1.0 float>,
+  "flash":           <true|false>,
+  "beat_sync":       <true|false>,
+  "suggestion_text": "<20 word max: what you changed and why>"
 }}"""
 
 def ai_worker():
-    """Background thread: calls Claude, pushes result to queue."""
+    """Background thread: calls Gemini every AI_INTERVAL_SEC seconds."""
     global _last_ai_call
     while True:
         time.sleep(0.5)
-        now = time.time()
         if not AI_ENABLED:
             time.sleep(5)
             continue
+        now = time.time()
         if (now - _last_ai_call) < AI_INTERVAL_SEC:
             continue
         _last_ai_call = now
         try:
-            prompt = build_ai_prompt()
-            resp = ai_client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=300,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            raw = resp.content[0].text.strip()
-            # Strip markdown fences if present
-            raw = raw.replace("```json", "").replace("```", "").strip()
+            prompt   = build_ai_prompt()
+            response = ai_client.generate_content(prompt)
+            raw      = response.text.strip()
+            # Strip markdown fences if Gemini wraps the response
+            raw  = raw.replace("```json", "").replace("```", "").strip()
             data = json.loads(raw)
             if not ai_queue.full():
                 ai_queue.put(data)
+        except json.JSONDecodeError as e:
+            if not ai_queue.full():
+                ai_queue.put({"suggestion_text": f"Gemini parse error: {str(e)[:50]}"})
         except Exception as e:
             if not ai_queue.full():
-                ai_queue.put({"suggestion_text": f"AI error: {str(e)[:60]}"})
+                ai_queue.put({"suggestion_text": f"Gemini error: {str(e)[:60]}"})
 
 def apply_ai_suggestion():
-    """Apply latest AI suggestion from queue if available."""
+    """Pop and apply the latest Gemini suggestion if available."""
     try:
         data = ai_queue.get_nowait()
-        if "color_mode"    in data: state.color_mode   = data["color_mode"]
-        if "strobe_hz"     in data: state.strobe_hz     = float(data["strobe_hz"])
-        if "brightness"    in data: state.brightness    = float(data["brightness"])
-        if "energy_level"  in data: state.energy_level  = float(data["energy_level"])
-        if "flash"         in data: state.flash         = bool(data["flash"])
-        if "beat_sync"     in data: state.beat_sync     = bool(data["beat_sync"])
+        if "color_mode"      in data: state.color_mode   = data["color_mode"]
+        if "strobe_hz"       in data: state.strobe_hz     = float(data["strobe_hz"])
+        if "brightness"      in data: state.brightness    = float(data["brightness"])
+        if "energy_level"    in data: state.energy_level  = float(data["energy_level"])
+        if "flash"           in data: state.flash         = bool(data["flash"])
+        if "beat_sync"       in data: state.beat_sync     = bool(data["beat_sync"])
         if "suggestion_text" in data:
-            state.ai_suggestion = "🤖 " + data["suggestion_text"]
-            print(f"\n[AI MAESTRO] {state.ai_suggestion}")
+            state.ai_suggestion = "✨ " + data["suggestion_text"]
+            print(f"\n[GEMINI MAESTRO] {state.ai_suggestion}")
     except queue.Empty:
         pass
 
@@ -636,10 +603,8 @@ class AudioEngine:
             pygame.mixer.music.set_volume(v)
 
 
-# ── HUD ───────────────────────────────────────────────────────────────────────
-_ai_text_lines: List[str] = []
-
-def wrap_text(text: str, max_len: int = 42) -> List[str]:
+# ── HUD renderer ─────────────────────────────────────────────────────────────
+def wrap_text(text: str, max_len: int = 48) -> List[str]:
     words, lines, cur = text.split(), [], ""
     for w in words:
         if len(cur) + len(w) + 1 > max_len:
@@ -652,65 +617,64 @@ def wrap_text(text: str, max_len: int = 42) -> List[str]:
 def draw_hud(frame: np.ndarray):
     h, w = frame.shape[:2]
 
-    # ── Left panel ────────────────────────────────────────────────────────
-    pw, ph = 430, 250
-    roi = frame[16:16+ph, 16:16+pw]
+    # ── Glass panel ───────────────────────────────────────────────────────
+    pw, ph = 440, 258
+    roi  = frame[16:16+ph, 16:16+pw]
     dark = np.zeros_like(roi)
-    cv2.addWeighted(dark, 0.60, roi, 0.40, 0, roi)
+    cv2.addWeighted(dark, 0.62, roi, 0.38, 0, roi)
     frame[16:16+ph, 16:16+pw] = roi
-    cv2.rectangle(frame, (16, 16), (16+pw, 16+ph), (180, 60, 255), 1)
+    cv2.rectangle(frame, (16, 16), (16+pw, 16+ph), (220, 140, 60), 1)
+    cv2.rectangle(frame, (17, 17), (15+pw, 15+ph), (120,  70, 30), 1)
 
     def t(label, val, y, col=(180, 255, 180)):
         cv2.putText(frame, f"{label}: {val}", (30, y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.48, col, 1, cv2.LINE_AA)
 
-    cv2.putText(frame, "DISCO MAESTRO v2", (30, 42),
-                cv2.FONT_HERSHEY_DUPLEX, 0.60, (255, 140, 255), 1, cv2.LINE_AA)
+    cv2.putText(frame, "DISCO MAESTRO v2  |  Gemini AI", (30, 42),
+                cv2.FONT_HERSHEY_DUPLEX, 0.56, (60, 200, 255), 1, cv2.LINE_AA)
 
-    t("GESTURE",    state.last_gesture,               66,  (255, 220, 80))
-    t("VOL",        f"{state.volume*100:.0f}%  "
-                    f"PAN {state.pan:+.2f}",           88,  (80, 255, 180))
-    t("BRIGHT",     f"{state.brightness*100:.0f}%  "
-                    f"ENERGY {state.energy_level:.2f}", 110, (80, 200, 255))
-    t("THEME",      state.color_mode.upper(),          132, (255, 120, 200))
-    t("STROBE",     f"{state.strobe_hz:.1f}Hz" if state.strobe_hz else "OFF",
-                                                        154, (255, 60, 60))
-    t("BPM WARP",   f"{state.bpm_warp:.2f}x  "
-                    f"BASS {'ON' if state.bass_boost else 'off'}  "
-                    f"TRB {'ON' if state.treble_boost else 'off'}", 176, (200,200,100))
+    t("GESTURE",  state.last_gesture,                               66, (255, 220,  80))
+    t("VOL",      f"{state.volume*100:.0f}%  PAN {state.pan:+.2f}", 88, ( 80, 255, 180))
+    t("BRIGHT",   f"{state.brightness*100:.0f}%  "
+                  f"ENERGY {state.energy_level:.2f}",               110, ( 80, 200, 255))
+    t("THEME",    state.color_mode.upper(),                         132, (255, 120, 200))
+    t("STROBE",   f"{state.strobe_hz:.1f}Hz" if state.strobe_hz else "OFF",
+                                                                    154, (255,  60,  60))
+    t("BPM WARP", f"{state.bpm_warp:.2f}x  "
+                  f"BASS {'ON' if state.bass_boost else 'off'}  "
+                  f"TRB {'ON' if state.treble_boost else 'off'}",  176, (200, 200, 100))
 
-    # AI suggestion
-    ai_lines = wrap_text(state.ai_suggestion, 50)
-    for i, line in enumerate(ai_lines[:2]):
-        cv2.putText(frame, line, (30, 202 + i*18),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.40, (120, 255, 255), 1, cv2.LINE_AA)
+    # Gemini suggestion line
+    for i, line in enumerate(wrap_text(state.ai_suggestion)[:2]):
+        cv2.putText(frame, line, (30, 204 + i * 18),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.38, (60, 255, 220), 1, cv2.LINE_AA)
 
     # ── Volume bar ────────────────────────────────────────────────────────
-    bw = int(state.volume * (w - 40))
-    cv2.rectangle(frame, (20, h-36), (w-20, h-18), (30, 15, 50), -1)
-    ec = state.energy_level
-    bar_col = (int(50+ec*50), int(255-ec*180), int(200-ec*180))
-    cv2.rectangle(frame, (20, h-36), (20+bw, h-18), bar_col, -1)
+    bw  = int(state.volume * (w - 40))
+    ec  = state.energy_level
+    bc  = (int(50+ec*50), int(255-ec*180), int(200-ec*180))
+    cv2.rectangle(frame, (20, h-36), (w-20,  h-18), (30, 15, 50), -1)
+    cv2.rectangle(frame, (20, h-36), (20+bw, h-18), bc,           -1)
     cv2.putText(frame, "VOL", (22, h-21),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180,180,180), 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.38, (180, 180, 180), 1)
 
-    # ── Energy ring ───────────────────────────────────────────────────────
+    # ── Velocity ring around right hand ───────────────────────────────────
     r_vel = math.sqrt(state.right_velocity[0]**2 + state.right_velocity[1]**2)
     if r_vel > 0.3:
         rx = int(state.right_hand_pos[0] * w)
         ry = int(state.right_hand_pos[1] * h)
         cv2.circle(frame, (rx, ry), int(20 + r_vel * 40),
-                   (255, 200, 60), 2, cv2.LINE_AA)
+                   (60, 220, 255), 2, cv2.LINE_AA)
 
-    # ── AI badge ──────────────────────────────────────────────────────────
-    ai_col = (0, 255, 180) if AI_ENABLED else (80, 80, 80)
-    cv2.putText(frame, "AI" if AI_ENABLED else "AI:OFF",
-                (w-80, h-18), cv2.FONT_HERSHEY_SIMPLEX, 0.45, ai_col, 1)
+    # ── AI status badge ───────────────────────────────────────────────────
+    ai_label = "GEMINI" if AI_ENABLED else "AI:OFF"
+    ai_col   = (60, 220, 255) if AI_ENABLED else (80, 80, 80)
+    cv2.putText(frame, ai_label, (w - 95, h - 18),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.42, ai_col, 1)
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Main entry point ──────────────────────────────────────────────────────────
 def main():
-    import sys, os
     music_path = ""
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
         music_path = sys.argv[1]
@@ -726,20 +690,21 @@ def main():
         audio.load(music_path)
         audio.play()
 
-    # Start AI background thread
+    # Start Gemini background thread
     if AI_ENABLED:
-        t = threading.Thread(target=ai_worker, daemon=True)
-        t.start()
-        print("[AI] 🤖 Claude Maestro activated.")
+        ai_thread = threading.Thread(target=ai_worker, daemon=True)
+        ai_thread.start()
+        print(f"[AI] ✨ Gemini Maestro activated — analysing every {AI_INTERVAL_SEC}s.")
+        print("[AI]    Press A during the show to force an instant analysis.")
     else:
-        print("[AI] Running without Anthropic API.")
+        print("[AI] Running without Gemini API.")
 
     cap = cv2.VideoCapture(CAMERA_INDEX)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  FRAME_W)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
 
     print("\n🪩  Camera ready.  Conduct away!")
-    print("   Q / ESC → quit  |  SPACE → pause/resume  |  A → force AI analysis\n")
+    print("   Q / ESC → quit  |  SPACE → pause/resume  |  A → force Gemini analysis\n")
 
     hands = mp_hands_mod.Hands(
         static_image_mode=False,
@@ -752,7 +717,8 @@ def main():
 
     while True:
         ret, frame = cap.read()
-        if not ret: break
+        if not ret:
+            break
 
         frame  = cv2.flip(frame, 1)
         rgb    = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -761,7 +727,6 @@ def main():
         update_state_from_gestures(result, FRAME_H, FRAME_W)
         apply_ai_suggestion()
 
-        # Draw landmarks
         if result.multi_hand_landmarks:
             for hand_lm in result.multi_hand_landmarks:
                 mp_draw_mod.draw_landmarks(
@@ -785,10 +750,9 @@ def main():
             else:      pygame.mixer.music.pause()
             paused = not paused
         elif key == ord('a') and AI_ENABLED:
-            # Force immediate AI call
             global _last_ai_call
             _last_ai_call = 0.0
-            print("[AI] Manual trigger...")
+            print("[AI] Manual Gemini trigger...")
 
     hands.close()
     cap.release()
