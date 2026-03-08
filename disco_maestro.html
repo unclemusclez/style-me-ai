@@ -1,0 +1,1076 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🪩 DISCO MAESTRO</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Orbitron:wght@400;700;900&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --neon-pink:   #ff2d78;
+    --neon-cyan:   #00f5ff;
+    --neon-gold:   #ffd600;
+    --neon-purple: #bf5fff;
+    --neon-green:  #39ff14;
+    --dark:        #060410;
+    --darker:      #020208;
+    --glass:       rgba(255,255,255,0.04);
+    --glass-border:rgba(255,255,255,0.10);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--darker);
+    font-family: 'Space Mono', monospace;
+    color: #fff;
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* ── Animated disco floor background ── */
+  #bg-canvas {
+    position: fixed; inset: 0; z-index: 0;
+    pointer-events: none;
+  }
+
+  /* ── Scanlines ── */
+  body::after {
+    content: '';
+    position: fixed; inset: 0; z-index: 1;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.08) 2px,
+      rgba(0,0,0,0.08) 4px
+    );
+    pointer-events: none;
+  }
+
+  .app {
+    position: relative; z-index: 2;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 20px 60px;
+  }
+
+  /* ── Header ── */
+  header {
+    text-align: center;
+    padding: 40px 0 32px;
+    position: relative;
+  }
+  .logo-mirror {
+    display: inline-block;
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(48px, 8vw, 96px);
+    letter-spacing: 0.08em;
+    line-height: 0.9;
+    background: linear-gradient(135deg, var(--neon-pink), var(--neon-cyan), var(--neon-gold), var(--neon-purple));
+    background-size: 300% 300%;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: gradShift 3s ease infinite;
+    filter: drop-shadow(0 0 20px rgba(255,45,120,0.5));
+  }
+  @keyframes gradShift {
+    0%,100% { background-position: 0% 50%; }
+    50%      { background-position: 100% 50%; }
+  }
+  .tagline {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.4em;
+    color: var(--neon-cyan);
+    opacity: 0.8;
+    margin-top: 6px;
+    text-transform: uppercase;
+  }
+  .disco-ball {
+    font-size: 48px;
+    display: block;
+    animation: spin 4s linear infinite;
+    filter: drop-shadow(0 0 12px var(--neon-gold));
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Grid layout ── */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 20px;
+  }
+  @media (max-width: 700px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+  .card {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 24px;
+    backdrop-filter: blur(12px);
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s;
+  }
+  .card:hover { border-color: rgba(255,255,255,0.22); }
+  .card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+    opacity: 0.5;
+  }
+  .card-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    letter-spacing: 0.35em;
+    color: var(--neon-cyan);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title::before {
+    content: '';
+    width: 24px; height: 1px;
+    background: var(--neon-cyan);
+    opacity: 0.6;
+  }
+
+  /* ── Upload zone ── */
+  .upload-zone {
+    border: 2px dashed rgba(255,45,120,0.4);
+    border-radius: 12px;
+    padding: 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s;
+    background: rgba(255,45,120,0.04);
+    position: relative;
+    overflow: hidden;
+  }
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--neon-pink);
+    background: rgba(255,45,120,0.10);
+    box-shadow: 0 0 30px rgba(255,45,120,0.2) inset;
+  }
+  .upload-zone .upload-icon { font-size: 40px; margin-bottom: 12px; }
+  .upload-zone p {
+    font-size: 13px;
+    color: rgba(255,255,255,0.6);
+    line-height: 1.6;
+  }
+  .upload-zone .file-name {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    color: var(--neon-green);
+    margin-top: 10px;
+    word-break: break-all;
+  }
+  #file-input { display: none; }
+
+  /* ── Waveform ── */
+  #waveform-canvas {
+    width: 100%; height: 80px;
+    border-radius: 8px;
+    margin: 16px 0;
+    background: rgba(0,0,0,0.3);
+    display: block;
+  }
+
+  /* ── Transport ── */
+  .transport {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 8px;
+  }
+  .btn {
+    border: none;
+    outline: none;
+    cursor: pointer;
+    border-radius: 8px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    transition: all 0.2s;
+    padding: 10px 20px;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--neon-pink), var(--neon-purple));
+    color: #fff;
+    box-shadow: 0 0 20px rgba(255,45,120,0.4);
+  }
+  .btn-primary:hover { box-shadow: 0 0 30px rgba(255,45,120,0.7); transform: translateY(-1px); }
+  .btn-secondary {
+    background: rgba(255,255,255,0.07);
+    color: rgba(255,255,255,0.7);
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .btn-secondary:hover { background: rgba(255,255,255,0.12); color: #fff; }
+  .btn-icon {
+    width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 50%;
+    font-size: 18px;
+    padding: 0;
+  }
+
+  /* ── Seek bar ── */
+  .seek-wrap { flex: 1; }
+  .time-bar {
+    width: 100%;
+    -webkit-appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: rgba(255,255,255,0.12);
+    outline: none;
+    cursor: pointer;
+  }
+  .time-bar::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--neon-pink);
+    box-shadow: 0 0 10px var(--neon-pink);
+    cursor: pointer;
+  }
+  .time-display {
+    font-size: 10px;
+    color: rgba(255,255,255,0.4);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── Sliders ── */
+  label.control-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: rgba(255,255,255,0.5);
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    font-family: 'Orbitron', sans-serif;
+  }
+  label.control-label span {
+    color: var(--neon-gold);
+    font-size: 12px;
+  }
+  input[type=range].neon-slider {
+    width: 100%;
+    -webkit-appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+    margin-bottom: 20px;
+  }
+  .slider-pink { background: linear-gradient(to right, var(--neon-pink) var(--pct,50%), rgba(255,255,255,0.12) var(--pct,50%)); }
+  .slider-cyan  { background: linear-gradient(to right, var(--neon-cyan) var(--pct,50%), rgba(255,255,255,0.12) var(--pct,50%)); }
+  .slider-gold  { background: linear-gradient(to right, var(--neon-gold) var(--pct,50%), rgba(255,255,255,0.12) var(--pct,50%)); }
+  .slider-green { background: linear-gradient(to right, var(--neon-green) var(--pct,50%), rgba(255,255,255,0.12) var(--pct,50%)); }
+  input[type=range].neon-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid rgba(0,0,0,0.4);
+  }
+  .slider-pink::-webkit-slider-thumb  { background: var(--neon-pink);   box-shadow: 0 0 8px var(--neon-pink); }
+  .slider-cyan::-webkit-slider-thumb  { background: var(--neon-cyan);   box-shadow: 0 0 8px var(--neon-cyan); }
+  .slider-gold::-webkit-slider-thumb  { background: var(--neon-gold);   box-shadow: 0 0 8px var(--neon-gold); }
+  .slider-green::-webkit-slider-thumb { background: var(--neon-green);  box-shadow: 0 0 8px var(--neon-green); }
+
+  /* ── Equalizer ── */
+  .eq-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    align-items: end;
+    height: 120px;
+  }
+  .eq-band { display: flex; flex-direction: column; align-items: center; gap: 6px; height: 100%; }
+  .eq-band input[type=range] {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    -webkit-appearance: slider-vertical;
+    width: 4px;
+    flex: 1;
+    cursor: pointer;
+    outline: none;
+    background: rgba(255,255,255,0.10);
+    border-radius: 2px;
+  }
+  .eq-band input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--neon-cyan);
+    box-shadow: 0 0 8px var(--neon-cyan);
+    cursor: pointer;
+  }
+  .eq-label { font-size: 9px; color: rgba(255,255,255,0.4); letter-spacing: 0.05em; font-family: 'Orbitron', sans-serif; }
+
+  /* ── Lighting panel ── */
+  .light-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .light-chip {
+    height: 40px;
+    border-radius: 8px;
+    border: 2px solid rgba(255,255,255,0.0);
+    cursor: pointer;
+    transition: all 0.25s;
+    position: relative;
+    overflow: hidden;
+  }
+  .light-chip::after {
+    content: attr(data-label);
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 8px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.9);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  }
+  .light-chip.active { border-color: #fff; box-shadow: 0 0 20px currentColor; }
+  .light-chip:hover  { transform: scale(1.05); }
+
+  /* ── Strobe / beat knobs ── */
+  .knob-row {
+    display: flex;
+    gap: 16px;
+    margin-top: 8px;
+  }
+  .knob-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .knob-label { font-family: 'Orbitron', sans-serif; font-size: 9px; letter-spacing: 0.2em; color: rgba(255,255,255,0.4); text-transform: uppercase; }
+
+  /* ── VU meters ── */
+  .vu-row { display: flex; gap: 4px; align-items: flex-end; height: 60px; margin-top: 12px; }
+  .vu-bar {
+    flex: 1;
+    border-radius: 2px 2px 0 0;
+    transition: height 0.05s, background 0.1s;
+    min-height: 2px;
+    background: var(--neon-green);
+  }
+
+  /* ── Spectrogram visualization ── */
+  #spectrum-canvas {
+    width: 100%; height: 100px;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.4);
+    display: block;
+    margin-top: 8px;
+  }
+
+  /* ── Status bar ── */
+  .status-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: rgba(6,4,16,0.92);
+    border-top: 1px solid var(--glass-border);
+    padding: 10px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    font-family: 'Orbitron', sans-serif;
+    color: rgba(255,255,255,0.4);
+    z-index: 100;
+    backdrop-filter: blur(20px);
+  }
+  .status-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--neon-green);
+    animation: blink 1.2s ease-in-out infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0.2;} }
+  .status-bar .now-playing { color: var(--neon-cyan); flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+  /* ── Full-width card ── */
+  .card-full { grid-column: 1 / -1; }
+
+  /* ── BPM display ── */
+  .bpm-display {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 64px;
+    line-height: 1;
+    text-align: center;
+    background: linear-gradient(135deg, var(--neon-gold), var(--neon-pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    filter: drop-shadow(0 0 12px rgba(255,214,0,0.4));
+    transition: color 0.1s;
+  }
+  .bpm-label { text-align: center; font-size: 9px; letter-spacing: 0.4em; color: rgba(255,255,255,0.3); font-family: 'Orbitron', sans-serif; margin-top: 4px; }
+  .beat-flash { animation: beatPulse 0.1s ease; }
+  @keyframes beatPulse { 0%{transform:scale(1);} 50%{transform:scale(1.08);} 100%{transform:scale(1);} }
+
+  /* toggle switch */
+  .toggle-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .toggle-row span { font-size: 10px; letter-spacing: 0.15em; color: rgba(255,255,255,0.55); font-family: 'Orbitron', sans-serif; text-transform: uppercase; }
+  .toggle { position: relative; width: 44px; height: 22px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .slider-toggle {
+    position: absolute; cursor: pointer; inset: 0;
+    background: rgba(255,255,255,0.1);
+    border-radius: 22px;
+    transition: 0.3s;
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  .slider-toggle::before {
+    content: ''; position: absolute;
+    height: 16px; width: 16px; left: 2px; bottom: 2px;
+    background: rgba(255,255,255,0.6);
+    border-radius: 50%;
+    transition: 0.3s;
+  }
+  .toggle input:checked + .slider-toggle { background: var(--neon-pink); box-shadow: 0 0 12px var(--neon-pink); }
+  .toggle input:checked + .slider-toggle::before { transform: translateX(22px); background: #fff; }
+</style>
+</head>
+<body>
+
+<canvas id="bg-canvas"></canvas>
+
+<div class="app">
+  <header>
+    <span class="disco-ball">🪩</span>
+    <div class="logo-mirror">DISCO MAESTRO</div>
+    <div class="tagline">CONDUCT YOUR LIGHT &amp; SOUND</div>
+  </header>
+
+  <div class="grid">
+
+    <!-- ── TRACK LOADER ── -->
+    <div class="card">
+      <div class="card-title">Track Loader</div>
+      <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+        <div class="upload-icon">🎵</div>
+        <p>Drop your MP3 here<br>or click to browse</p>
+        <div class="file-name" id="file-name">No track loaded</div>
+      </div>
+      <input type="file" id="file-input" accept="audio/*">
+
+      <canvas id="waveform-canvas"></canvas>
+
+      <div class="transport">
+        <button class="btn btn-icon btn-secondary" id="btn-rew" title="Rewind">⏮</button>
+        <button class="btn btn-icon btn-primary" id="btn-play">▶</button>
+        <button class="btn btn-icon btn-secondary" id="btn-stop">⏹</button>
+        <div class="seek-wrap">
+          <input type="range" class="time-bar" id="seek-bar" min="0" max="100" value="0">
+          <div class="time-display"><span id="t-cur">0:00</span> / <span id="t-dur">0:00</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── MIXER ── -->
+    <div class="card">
+      <div class="card-title">Mixer</div>
+
+      <label class="control-label">Volume <span id="vol-val">80%</span></label>
+      <input type="range" class="neon-slider slider-pink" id="volume" min="0" max="100" value="80">
+
+      <label class="control-label">Bass Boost <span id="bass-val">50%</span></label>
+      <input type="range" class="neon-slider slider-gold" id="bass" min="0" max="100" value="50">
+
+      <label class="control-label">Treble <span id="treble-val">50%</span></label>
+      <input type="range" class="neon-slider slider-cyan" id="treble" min="0" max="100" value="50">
+
+      <label class="control-label">Pan <span id="pan-val">C</span></label>
+      <input type="range" class="neon-slider slider-green" id="pan" min="-100" max="100" value="0">
+
+      <!-- VU meters -->
+      <div class="vu-row" id="vu-row"></div>
+    </div>
+
+    <!-- ── EQUALIZER ── -->
+    <div class="card">
+      <div class="card-title">7-Band Equalizer</div>
+      <div class="eq-grid" id="eq-grid"></div>
+    </div>
+
+    <!-- ── LIGHTING ── -->
+    <div class="card">
+      <div class="card-title">Stage Lighting</div>
+      <div class="light-grid">
+        <div class="light-chip active" data-label="RAINBOW" data-mode="rainbow"
+             style="background:linear-gradient(135deg,#ff2d78,#00f5ff,#ffd600,#bf5fff)"></div>
+        <div class="light-chip" data-label="FIRE" data-mode="fire"
+             style="background:linear-gradient(135deg,#ff6a00,#ee0979)"></div>
+        <div class="light-chip" data-label="OCEAN" data-mode="ocean"
+             style="background:linear-gradient(135deg,#0052d4,#00f5ff)"></div>
+        <div class="light-chip" data-label="FOREST" data-mode="forest"
+             style="background:linear-gradient(135deg,#1a6b1a,#39ff14)"></div>
+        <div class="light-chip" data-label="COSMIC" data-mode="cosmic"
+             style="background:linear-gradient(135deg,#1a0533,#bf5fff)"></div>
+        <div class="light-chip" data-label="GOLD" data-mode="gold"
+             style="background:linear-gradient(135deg,#f7971e,#ffd600)"></div>
+        <div class="light-chip" data-label="PINK" data-mode="pink"
+             style="background:linear-gradient(135deg,#ff2d78,#ff96e0)"></div>
+        <div class="light-chip" data-label="ARCTIC" data-mode="arctic"
+             style="background:linear-gradient(135deg,#e0f7fa,#b2ebf2)"></div>
+      </div>
+
+      <label class="control-label">Brightness <span id="bright-val">100%</span></label>
+      <input type="range" class="neon-slider slider-pink" id="brightness" min="0" max="100" value="100">
+
+      <div class="toggle-row">
+        <span>Strobe Flash</span>
+        <label class="toggle"><input type="checkbox" id="strobe-toggle"><span class="slider-toggle"></span></label>
+      </div>
+
+      <label class="control-label">Strobe Speed <span id="strobe-val">4 Hz</span></label>
+      <input type="range" class="neon-slider slider-gold" id="strobe-speed" min="1" max="30" value="4">
+
+      <div class="toggle-row">
+        <span>Beat Sync Lights</span>
+        <label class="toggle"><input type="checkbox" id="beat-sync" checked><span class="slider-toggle"></span></label>
+      </div>
+    </div>
+
+    <!-- ── SPECTRUM ── -->
+    <div class="card card-full">
+      <div class="card-title">Spectrum Analyzer</div>
+      <canvas id="spectrum-canvas"></canvas>
+      <div style="display:flex;justify-content:space-between;margin-top:4px">
+        <div>
+          <div class="bpm-display" id="bpm-display">128</div>
+          <div class="bpm-label">BPM DETECTED</div>
+        </div>
+        <div style="flex:1;margin-left:32px">
+          <label class="control-label">Playback Speed <span id="speed-val">1.0×</span></label>
+          <input type="range" class="neon-slider slider-purple" id="playback-speed" min="50" max="200" value="100"
+                 style="background:linear-gradient(to right, var(--neon-purple) 50%, rgba(255,255,255,0.12) 50%)">
+
+          <div class="toggle-row" style="margin-top:8px">
+            <span>Reverb</span>
+            <label class="toggle"><input type="checkbox" id="reverb-toggle"><span class="slider-toggle"></span></label>
+          </div>
+          <div class="toggle-row">
+            <span>Auto-DJ Beat Match</span>
+            <label class="toggle"><input type="checkbox" id="autodj-toggle"><span class="slider-toggle"></span></label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /grid -->
+</div><!-- /app -->
+
+<div class="status-bar">
+  <div class="status-dot" id="status-dot"></div>
+  <span id="status-text">NO TRACK LOADED — DROP AN MP3 TO BEGIN</span>
+  <span class="now-playing" id="now-playing"></span>
+  <span id="status-mode">MODE: STANDBY</span>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════
+//  DISCO MAESTRO — Full JS Engine
+// ══════════════════════════════════════════════════════
+
+// ── Disco floor background ─────────────────────────────
+const bgCanvas = document.getElementById('bg-canvas');
+const bgCtx    = bgCanvas.getContext('2d');
+let tiles = [], tileH = 0;
+const TILE_COLS = 12, TILE_ROWS = 8;
+
+function initTiles() {
+  bgCanvas.width  = window.innerWidth;
+  bgCanvas.height = window.innerHeight;
+  tileH = bgCanvas.height / TILE_ROWS;
+  tiles = [];
+  for (let r = 0; r < TILE_ROWS; r++) {
+    for (let c = 0; c < TILE_COLS; c++) {
+      tiles.push({
+        x: c * bgCanvas.width / TILE_COLS,
+        y: r * tileH,
+        w: bgCanvas.width / TILE_COLS,
+        h: tileH,
+        hue: Math.random() * 360,
+        speed: 0.3 + Math.random() * 1.2,
+        alpha: 0.05 + Math.random() * 0.12,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+  }
+}
+initTiles();
+window.addEventListener('resize', initTiles);
+
+let bgT = 0;
+function drawBg() {
+  bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+  bgCtx.fillStyle = '#020208';
+  bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+
+  for (const t of tiles) {
+    t.hue = (t.hue + t.speed * 0.4) % 360;
+    const a = t.alpha + Math.sin(bgT * 0.7 + t.phase) * 0.05;
+    bgCtx.fillStyle = `hsla(${t.hue},90%,60%,${Math.max(0,a)})`;
+    bgCtx.fillRect(t.x + 1, t.y + 1, t.w - 2, t.h - 2);
+    // grid lines
+    bgCtx.strokeStyle = `rgba(255,255,255,0.04)`;
+    bgCtx.strokeRect(t.x, t.y, t.w, t.h);
+  }
+  bgT += 0.016;
+}
+
+// ── Audio Context & Nodes ──────────────────────────────
+let audioCtx, analyserL, analyserR, gainNode, bassFilter, trebleFilter,
+    pannerNode, reverbNode, convBuffer, playbackSource;
+let audioBuffer = null;
+let isPlaying = false;
+let startedAt  = 0;
+let pausedAt   = 0;
+
+function buildAudioGraph() {
+  audioCtx    = new (window.AudioContext || window.webkitAudioContext)();
+  gainNode    = audioCtx.createGain();
+  bassFilter  = audioCtx.createBiquadFilter();
+  trebleFilter= audioCtx.createBiquadFilter();
+  pannerNode  = audioCtx.createStereoPanner();
+  analyserL   = audioCtx.createAnalyser();
+  analyserR   = audioCtx.createAnalyser();
+
+  bassFilter.type    = 'lowshelf';
+  bassFilter.frequency.value = 200;
+  trebleFilter.type  = 'highshelf';
+  trebleFilter.frequency.value = 4000;
+
+  analyserL.fftSize = 2048;
+  analyserR.fftSize = 2048;
+
+  // Chain: source → bass → treble → gain → pan → analyser → dest
+  bassFilter.connect(trebleFilter);
+  trebleFilter.connect(gainNode);
+  gainNode.connect(pannerNode);
+  pannerNode.connect(analyserL);
+  analyserL.connect(audioCtx.destination);
+}
+
+function playBuffer(offset = 0) {
+  if (!audioBuffer || !audioCtx) return;
+  if (playbackSource) { try { playbackSource.stop(); } catch(e){} }
+  playbackSource = audioCtx.createBufferSource();
+  playbackSource.buffer = audioBuffer;
+  playbackSource.playbackRate.value = parseFloat(document.getElementById('playback-speed').value) / 100;
+  playbackSource.connect(bassFilter);
+  playbackSource.start(0, offset);
+  startedAt = audioCtx.currentTime - offset;
+  isPlaying = true;
+  document.getElementById('btn-play').textContent = '⏸';
+  setStatus('PLAYING', nowPlayingName);
+}
+
+function pauseAudio() {
+  if (!isPlaying) return;
+  pausedAt = audioCtx.currentTime - startedAt;
+  try { playbackSource.stop(); } catch(e) {}
+  isPlaying = false;
+  document.getElementById('btn-play').textContent = '▶';
+  setStatus('PAUSED', nowPlayingName);
+}
+
+function stopAudio() {
+  pausedAt = 0;
+  try { if (playbackSource) playbackSource.stop(); } catch(e) {}
+  isPlaying = false;
+  document.getElementById('btn-play').textContent = '▶';
+  document.getElementById('seek-bar').value = 0;
+  document.getElementById('t-cur').textContent = '0:00';
+  setStatus('STOPPED', nowPlayingName);
+}
+
+// ── File loader ────────────────────────────────────────
+let nowPlayingName = '';
+
+function loadAudioFile(file) {
+  if (!audioCtx) buildAudioGraph();
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const ab = e.target.result;
+    audioBuffer = await audioCtx.decodeAudioData(ab);
+    drawWaveform(audioBuffer);
+    document.getElementById('t-dur').textContent = fmt(audioBuffer.duration);
+    document.getElementById('file-name').textContent = file.name;
+    document.getElementById('seek-bar').max = Math.floor(audioBuffer.duration);
+    nowPlayingName = file.name;
+    document.getElementById('now-playing').textContent = '♫ ' + file.name;
+    playBuffer(0);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+document.getElementById('file-input').addEventListener('change', e => {
+  if (e.target.files[0]) loadAudioFile(e.target.files[0]);
+});
+const zone = document.getElementById('upload-zone');
+zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+zone.addEventListener('drop', e => {
+  e.preventDefault(); zone.classList.remove('drag-over');
+  if (e.dataTransfer.files[0]) loadAudioFile(e.dataTransfer.files[0]);
+});
+
+// ── Waveform draw ──────────────────────────────────────
+function drawWaveform(buf) {
+  const cv = document.getElementById('waveform-canvas');
+  cv.width  = cv.offsetWidth * window.devicePixelRatio;
+  cv.height = cv.offsetHeight * window.devicePixelRatio;
+  const ctx = cv.getContext('2d');
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  const W = cv.offsetWidth, H = cv.offsetHeight;
+  ctx.clearRect(0, 0, W, H);
+
+  const data = buf.getChannelData(0);
+  const step = Math.ceil(data.length / W);
+  const grad = ctx.createLinearGradient(0, 0, W, 0);
+  grad.addColorStop(0,   '#ff2d78');
+  grad.addColorStop(0.5, '#00f5ff');
+  grad.addColorStop(1,   '#bf5fff');
+  ctx.strokeStyle = grad;
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < W; i++) {
+    let max = 0;
+    for (let j = 0; j < step; j++) {
+      const v = Math.abs(data[i * step + j] || 0);
+      if (v > max) max = v;
+    }
+    const y = (1 - max) * H / 2;
+    i === 0 ? ctx.moveTo(i, y) : ctx.lineTo(i, y);
+  }
+  ctx.stroke();
+  ctx.beginPath();
+  for (let i = 0; i < W; i++) {
+    let max = 0;
+    for (let j = 0; j < step; j++) {
+      const v = Math.abs(data[i * step + j] || 0);
+      if (v > max) max = v;
+    }
+    const y = (1 + max) * H / 2;
+    i === 0 ? ctx.moveTo(i, y) : ctx.lineTo(i, y);
+  }
+  ctx.stroke();
+}
+
+// ── Transport ──────────────────────────────────────────
+document.getElementById('btn-play').addEventListener('click', () => {
+  if (!audioBuffer) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  isPlaying ? pauseAudio() : playBuffer(pausedAt);
+});
+document.getElementById('btn-stop').addEventListener('click', stopAudio);
+document.getElementById('btn-rew').addEventListener('click', () => {
+  stopAudio(); if (audioBuffer) { pausedAt = 0; playBuffer(0); }
+});
+document.getElementById('seek-bar').addEventListener('input', function() {
+  if (!audioBuffer) return;
+  const t = parseFloat(this.value);
+  pausedAt = t;
+  if (isPlaying) playBuffer(t);
+  document.getElementById('t-cur').textContent = fmt(t);
+});
+
+// ── EQ bands ──────────────────────────────────────────
+const EQ_BANDS = [
+  { freq: 60,   label: '60Hz'  },
+  { freq: 170,  label: '170Hz' },
+  { freq: 350,  label: '350Hz' },
+  { freq: 1000, label: '1kHz'  },
+  { freq: 3500, label: '3.5k'  },
+  { freq: 10000,label: '10kHz' },
+  { freq: 16000,label: '16kHz' },
+];
+const eqFilters = [];
+const eqGrid = document.getElementById('eq-grid');
+
+EQ_BANDS.forEach((band, i) => {
+  const wrap = document.createElement('div'); wrap.className = 'eq-band';
+  const inp  = document.createElement('input');
+  inp.type = 'range'; inp.min = -12; inp.max = 12; inp.value = 0;
+  inp.style.accentColor = `hsl(${200 + i * 25},100%,60%)`;
+  const lbl = document.createElement('span'); lbl.className = 'eq-label'; lbl.textContent = band.label;
+  wrap.append(inp, lbl);
+  eqGrid.appendChild(wrap);
+
+  inp.addEventListener('input', () => {
+    if (!eqFilters[i]) return;
+    eqFilters[i].gain.value = parseFloat(inp.value);
+  });
+});
+
+function buildEqFilters() {
+  if (!audioCtx) return;
+  let prev = bassFilter; // will be re-linked properly
+  EQ_BANDS.forEach((band, i) => {
+    const f = audioCtx.createBiquadFilter();
+    f.type = i === 0 ? 'lowshelf' : i === EQ_BANDS.length - 1 ? 'highshelf' : 'peaking';
+    f.frequency.value = band.freq;
+    f.gain.value = 0;
+    f.Q.value = 1;
+    eqFilters.push(f);
+  });
+}
+
+// ── VU Meter ──────────────────────────────────────────
+const VU_COUNT = 24;
+const vuRow = document.getElementById('vu-row');
+const vuBars = [];
+for (let i = 0; i < VU_COUNT; i++) {
+  const b = document.createElement('div'); b.className = 'vu-bar';
+  b.style.height = '4px';
+  vuRow.appendChild(b);
+  vuBars.push(b);
+}
+function updateVU(dataArray) {
+  const step = Math.floor(dataArray.length / VU_COUNT);
+  for (let i = 0; i < VU_COUNT; i++) {
+    let sum = 0;
+    for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+    const avg = sum / step / 255;
+    const h   = Math.max(3, avg * 56);
+    const hue = 120 - avg * 120;
+    vuBars[i].style.height    = h + 'px';
+    vuBars[i].style.background= `hsl(${hue},100%,55%)`;
+    vuBars[i].style.boxShadow = `0 0 4px hsl(${hue},100%,55%)`;
+  }
+}
+
+// ── Spectrum Analyser ──────────────────────────────────
+const specCanvas = document.getElementById('spectrum-canvas');
+let specCtx;
+function initSpec() {
+  specCanvas.width  = specCanvas.offsetWidth * window.devicePixelRatio;
+  specCanvas.height = specCanvas.offsetHeight * window.devicePixelRatio;
+  specCtx = specCanvas.getContext('2d');
+  specCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+}
+initSpec();
+window.addEventListener('resize', initSpec);
+
+const barHeights = new Array(64).fill(0);
+
+function drawSpectrum(dataArray) {
+  if (!specCtx) return;
+  const W = specCanvas.offsetWidth, H = specCanvas.offsetHeight;
+  specCtx.clearRect(0, 0, W, H);
+  specCtx.fillStyle = 'rgba(0,0,0,0.2)';
+  specCtx.fillRect(0, 0, W, H);
+
+  const barW = (W / 64) - 1;
+  for (let i = 0; i < 64; i++) {
+    const val = dataArray[i] / 255;
+    barHeights[i] = Math.max(barHeights[i] * 0.88, val * H);
+    const x   = i * (barW + 1);
+    const hue = (i / 64) * 280 + currentLightHue;
+    specCtx.fillStyle = `hsla(${hue % 360},100%,60%,0.85)`;
+    specCtx.fillRect(x, H - barHeights[i], barW, barHeights[i]);
+    // peak dot
+    specCtx.fillStyle = `hsla(${hue % 360},100%,85%,0.6)`;
+    specCtx.fillRect(x, H - barHeights[i] - 2, barW, 2);
+  }
+}
+
+// ── Controls binding ───────────────────────────────────
+function bindSlider(id, labelId, fmt, fn) {
+  const el = document.getElementById(id);
+  const lbl= document.getElementById(labelId);
+  el.addEventListener('input', () => { lbl.textContent = fmt(el.value); fn(el.value); updateSliderBg(el); });
+  updateSliderBg(el);
+}
+function updateSliderBg(el) {
+  const min = parseFloat(el.min), max = parseFloat(el.max), val = parseFloat(el.value);
+  const pct = ((val - min) / (max - min) * 100).toFixed(1) + '%';
+  el.style.setProperty('--pct', pct);
+  // inline fallback
+  const cls = [...el.classList].find(c => c.startsWith('slider-'));
+  const colorMap = { 'slider-pink': '#ff2d78', 'slider-cyan': '#00f5ff',
+                     'slider-gold': '#ffd600', 'slider-green': '#39ff14',
+                     'slider-purple': '#bf5fff' };
+  const color = colorMap[cls] || '#ff2d78';
+  el.style.background = `linear-gradient(to right, ${color} ${pct}, rgba(255,255,255,0.12) ${pct})`;
+}
+
+bindSlider('volume',     'vol-val',    v => v + '%',
+  v => { if (gainNode) gainNode.gain.value = v / 100; });
+bindSlider('bass',       'bass-val',   v => v + '%',
+  v => { if (bassFilter) bassFilter.gain.value = (v - 50) / 5; });
+bindSlider('treble',     'treble-val', v => v + '%',
+  v => { if (trebleFilter) trebleFilter.gain.value = (v - 50) / 5; });
+bindSlider('pan',        'pan-val',    v => v == 0 ? 'C' : (v > 0 ? v + 'R' : Math.abs(v) + 'L'),
+  v => { if (pannerNode) pannerNode.pan.value = v / 100; });
+bindSlider('brightness', 'bright-val', v => v + '%', v => { sceneBrightness = v / 100; });
+bindSlider('strobe-speed','strobe-val', v => v + ' Hz', v => { strobeHz = parseFloat(v); });
+bindSlider('playback-speed','speed-val', v => (v / 100).toFixed(2) + '×',
+  v => { if (playbackSource) playbackSource.playbackRate.value = v / 100; });
+
+// ── Lighting modes ─────────────────────────────────────
+let currentLightMode = 'rainbow';
+let currentLightHue  = 0;
+let sceneBrightness  = 1.0;
+let strobeHz         = 4;
+let strobeOn         = false;
+let lastStrobeFlip   = 0;
+
+document.querySelectorAll('.light-chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.light-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    currentLightMode = chip.dataset.mode;
+  });
+});
+
+const LIGHT_HUES = {
+  rainbow: null, fire: 15, ocean: 200, forest: 130,
+  cosmic: 280, gold: 48, pink: 330, arctic: 185
+};
+
+function getLightHue(t) {
+  if (currentLightMode === 'rainbow') return (t * 60) % 360;
+  return LIGHT_HUES[currentLightMode] || 200;
+}
+
+function applySceneLight(alpha) {
+  // Applied to bg canvas tiles
+  for (const tile of tiles) {
+    tile.alpha = alpha * (0.06 + Math.random() * 0.04);
+    if (currentLightMode !== 'rainbow') {
+      tile.hue = getLightHue(0) + (Math.random() - 0.5) * 30;
+    }
+  }
+}
+
+// ── BPM detector (simple energy-based) ────────────────
+let bpmFrames = [];
+let lastBPM = 128;
+const bpmDisplay = document.getElementById('bpm-display');
+
+function estimateBPM(dataArray) {
+  let energy = 0;
+  for (let i = 0; i < 8; i++) energy += dataArray[i];
+  energy /= (8 * 255);
+  bpmFrames.push({ e: energy, t: performance.now() });
+  if (bpmFrames.length > 200) bpmFrames.shift();
+
+  // Find peaks
+  const threshold = 0.55;
+  let peaks = [];
+  for (let i = 1; i < bpmFrames.length - 1; i++) {
+    if (bpmFrames[i].e > threshold &&
+        bpmFrames[i].e >= bpmFrames[i-1].e &&
+        bpmFrames[i].e >= bpmFrames[i+1].e) {
+      peaks.push(bpmFrames[i].t);
+    }
+  }
+  if (peaks.length > 2) {
+    const intervals = [];
+    for (let i = 1; i < peaks.length; i++) intervals.push(peaks[i] - peaks[i-1]);
+    const avg = intervals.reduce((a,b)=>a+b,0) / intervals.length;
+    if (avg > 0) {
+      const bpm = Math.round(60000 / avg);
+      if (bpm > 60 && bpm < 220) {
+        lastBPM = Math.round(lastBPM * 0.9 + bpm * 0.1);
+        bpmDisplay.textContent = lastBPM;
+      }
+    }
+  }
+}
+
+// ── Strobe ─────────────────────────────────────────────
+function checkStrobe(t) {
+  if (!document.getElementById('strobe-toggle').checked) return false;
+  const interval = 1000 / strobeHz;
+  if (t - lastStrobeFlip > interval) {
+    lastStrobeFlip = t;
+    strobeOn = !strobeOn;
+  }
+  return strobeOn;
+}
+
+// ── Main render loop ───────────────────────────────────
+const freqData = new Uint8Array(analyserL ? analyserL.frequencyBinCount : 1024);
+
+function loop(t) {
+  requestAnimationFrame(loop);
+  drawBg();
+
+  if (analyserL && isPlaying) {
+    analyserL.getByteFrequencyData(freqData);
+    updateVU(freqData);
+    drawSpectrum(freqData);
+    estimateBPM(freqData);
+
+    // Beat sync lighting
+    if (document.getElementById('beat-sync').checked) {
+      const bassEnergy = (freqData[0] + freqData[1] + freqData[2]) / (3 * 255);
+      applySceneLight(bassEnergy * sceneBrightness * 1.5);
+    }
+
+    currentLightHue = getLightHue(t / 1000);
+
+    // Seek bar update
+    if (audioBuffer) {
+      const elapsed = audioCtx.currentTime - startedAt;
+      if (elapsed <= audioBuffer.duration) {
+        document.getElementById('seek-bar').value = elapsed;
+        document.getElementById('t-cur').textContent = fmt(elapsed);
+      } else {
+        stopAudio();
+      }
+    }
+
+    // Strobe flash on bg
+    if (checkStrobe(t)) {
+      bgCtx.fillStyle = 'rgba(255,255,255,0.15)';
+      bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+    }
+  }
+}
+requestAnimationFrame(loop);
+
+// ── Helpers ────────────────────────────────────────────
+function fmt(s) {
+  s = Math.floor(s);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+function setStatus(mode, name) {
+  document.getElementById('status-mode').textContent = 'MODE: ' + mode;
+  const dot = document.getElementById('status-dot');
+  dot.style.background = mode === 'PLAYING' ? '#39ff14' : mode === 'PAUSED' ? '#ffd600' : '#ff2d78';
+}
+setStatus('STANDBY', '');
+
+// Re-init analyser after audio context build
+const _origBuildAudio = buildAudioGraph;
+function buildAudioGraph() {
+  _origBuildAudio();
+}
+</script>
+</body>
+</html>
