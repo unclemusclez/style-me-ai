@@ -1,21 +1,36 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, Mic, MicOff, Loader2, Image as ImageIcon } from 'lucide-react';
+import { Camera, Mic, MicOff, Loader2, Image as ImageIcon, Download, Upload, X } from 'lucide-react';
 import { GoogleGenAI, Type, LiveServerMessage, Modality } from '@google/genai';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 const generateClothingImageDeclaration = {
   name: "generateClothingImage",
-  description: "Generate an image of the user wearing the requested clothing style. Call this when the user asks to see themselves in a specific outfit or style.",
+  description: "Generate an image of the user wearing the requested clothing style and/or in a specific background. Call this when the user asks to see themselves in a specific outfit, style, or location.",
   parameters: {
     type: Type.OBJECT,
     properties: {
       styleDescription: {
         type: Type.STRING,
-        description: "The description of the clothing style the user wants to wear. E.g., 'a red leather jacket', 'a vintage 1920s dress', 'cyberpunk streetwear'.",
+        description: "The description of the clothing style the user wants to wear. E.g., 'a red leather jacket', 'a vintage 1920s dress'. Leave empty if they only want to change the background.",
       },
+      backgroundDescription: {
+        type: Type.STRING,
+        description: "The description of the background or location. E.g., 'a cyberpunk city', 'a sunny beach'. Leave empty if they only want to change clothes.",
+      },
+      characterName: {
+        type: Type.STRING,
+        description: "A creative, fitting name for the character in this outfit/setting.",
+      },
+      biography: {
+        type: Type.STRING,
+        description: "A short, fun biography (1-2 sentences) for this character based on their look.",
+      },
+      circa: {
+        type: Type.STRING,
+        description: "The year or era this image represents (e.g., 'Circa 1920', 'Circa 2077', 'Circa 18th Century').",
+      }
     },
-    required: ["styleDescription"],
   },
 };
 
@@ -37,6 +52,35 @@ export default function App() {
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [statusText, setStatusText] = useState("Ready to style");
+  const [characterInfo, setCharacterInfo] = useState<{name: string, bio: string, circa: string} | null>(null);
+  
+  const [inspirationImage, setInspirationImage] = useState<string | null>(null);
+  const [inspirationMode, setInspirationMode] = useState<'clothing' | 'background'>('clothing');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setInspirationImage(event.target?.result as string);
+      
+      if (sessionRef.current) {
+        try {
+          sessionRef.current.sendClientContent({
+            turns: [{
+              role: "user",
+              parts: [{ text: "System Notification: The user just uploaded an inspiration image. Acknowledge it briefly and ask if they want to use it for their clothing style or their background." }]
+            }],
+            turnComplete: true
+          });
+        } catch (err) {
+          console.error("Failed to send notification to Live API", err);
+        }
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     const startCamera = async () => {
@@ -131,7 +175,7 @@ export default function App() {
     }
   }, []);
 
-  const generateImage = async (styleDescription: string) => {
+  const generateImage = async (styleDescription?: string, backgroundDescription?: string) => {
     setIsGenerating(true);
     try {
       if (!videoRef.current || !canvasRef.current) {
@@ -149,31 +193,70 @@ export default function App() {
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const base64ImageData = canvas.toDataURL('image/jpeg').split(',')[1];
       
-      const prompt = `Change the clothing of the person in the image to: ${styleDescription}. Keep the person's face, identity, and pose exactly the same. Only change the clothing.`;
+      const parts: any[] = [
+        {
+          inlineData: {
+            data: base64ImageData,
+            mimeType: 'image/jpeg',
+          },
+        },
+      ];
+
+      let promptText = "";
+      if (inspirationImage) {
+        const inspirationBase64 = inspirationImage.split(',')[1];
+        const mimeType = inspirationImage.split(';')[0].split(':')[1];
+        parts.push({
+          inlineData: {
+            data: inspirationBase64,
+            mimeType: mimeType,
+          }
+        });
+        
+        if (inspirationMode === 'clothing') {
+          promptText = "You are provided with two images. The first image is the base image of a person. The second image is a style reference. Edit the first image so that the person is wearing the exact same clothing and style as shown in the second image. ";
+          if (styleDescription) promptText += `Additional clothing instructions: ${styleDescription}. `;
+          if (backgroundDescription) promptText += `Also change the background to: ${backgroundDescription}. `;
+        } else {
+          promptText = "You are provided with two images. The first image is the base image of a person. The second image is a background reference. Edit the first image so that the person is placed in the exact same environment and background as shown in the second image. ";
+          if (styleDescription) promptText += `Also change their clothing to: ${styleDescription}. `;
+          if (backgroundDescription) promptText += `Additional background instructions: ${backgroundDescription}. `;
+        }
+      } else {
+        if (styleDescription && backgroundDescription) {
+          promptText = `Change the clothing of the person in the image to: ${styleDescription}, and change the background to: ${backgroundDescription}. `;
+        } else if (styleDescription) {
+          promptText = `Change the clothing of the person in the image to: ${styleDescription}. `;
+        } else if (backgroundDescription) {
+          promptText = `Keep the person's clothing exactly the same, but change the background to: ${backgroundDescription}. `;
+        } else {
+          promptText = "Enhance the image. ";
+        }
+      }
+      
+      promptText += "Keep the person's face, identity, and pose exactly the same. Only change what was requested.";
+      parts.push({ text: promptText });
       
       const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
         contents: {
-          parts: [
-            {
-              inlineData: {
-                data: base64ImageData,
-                mimeType: 'image/jpeg',
-              },
-            },
-            {
-              text: prompt,
-            },
-          ],
+          parts: parts,
         },
       });
       
+      let imageFound = false;
       for (const part of response.candidates?.[0]?.content?.parts || []) {
         if (part.inlineData) {
           setGeneratedImage(`data:image/jpeg;base64,${part.inlineData.data}`);
-          setStatusText(`Style applied: ${styleDescription}`);
+          setStatusText(`Image generated successfully!`);
+          imageFound = true;
           break;
         }
+      }
+      
+      if (!imageFound) {
+        console.error("No image returned by the model. Response:", response);
+        setStatusText("Failed to generate image. Try a different prompt.");
       }
     } catch (err) {
       console.error("Error generating image:", err);
@@ -286,9 +369,19 @@ export default function App() {
                   if (call.name === "generateClothingImage") {
                     const args = call.args as any;
                     const styleDescription = args.styleDescription;
+                    const backgroundDescription = args.backgroundDescription;
+                    const characterName = args.characterName || "Unknown Traveler";
+                    const biography = args.biography || "A mysterious figure from an unknown time.";
+                    const circa = args.circa || "Circa Unknown";
                     
-                    setStatusText(`Generating style: ${styleDescription}...`);
-                    generateImage(styleDescription);
+                    let status = "Generating image...";
+                    if (styleDescription && backgroundDescription) status = `Generating style & background...`;
+                    else if (styleDescription) status = `Generating style: ${styleDescription}...`;
+                    else if (backgroundDescription) status = `Generating background: ${backgroundDescription}...`;
+                    
+                    setStatusText(status);
+                    setCharacterInfo({ name: characterName, bio: biography, circa: circa });
+                    generateImage(styleDescription, backgroundDescription);
                     
                     sessionPromise.then(session => {
                       session.sendToolResponse({
@@ -321,7 +414,7 @@ export default function App() {
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: "Zephyr" } },
           },
-          systemInstruction: "You are a helpful virtual stylist. The user is looking at a camera. When they ask to try on a specific clothing style or outfit, use the generateClothingImage tool to apply that style to them. Be conversational, friendly, and brief.",
+          systemInstruction: "You are a helpful virtual stylist. The user is looking at a camera. When they ask to try on a specific clothing style, outfit, or change their background/location, use the generateClothingImage tool to apply that style and background to them. The user has an interface where they can upload an inspiration image. If they mention an uploaded image, picture, or inspiration, assume it is uploaded and call the generateClothingImage tool. When the user uploads or removes an image, you will receive a System Notification. Acknowledge it naturally. Be conversational, friendly, and brief.",
           tools: [{ functionDeclarations: [generateClothingImageDeclaration] }],
         },
       });
@@ -340,6 +433,16 @@ export default function App() {
     setIsListening(false);
     setStatusText("Ready to style");
     cleanupAudio();
+  };
+
+  const downloadImage = () => {
+    if (!generatedImage) return;
+    const a = document.createElement('a');
+    a.href = generatedImage;
+    a.download = `style-me-${Date.now()}.jpg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   return (
@@ -361,24 +464,96 @@ export default function App() {
       </header>
       
       <main className="flex-1 p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Camera View */}
-        <div className="relative rounded-2xl overflow-hidden bg-neutral-900 border border-white/5 flex flex-col min-h-[400px]">
-          <div className="absolute top-4 left-4 z-10 bg-black/50 backdrop-blur-md px-3 py-1 rounded-full text-xs font-mono text-white/80 border border-white/10">
-            LIVE CAMERA
-          </div>
-          <video 
-            ref={videoRef} 
-            autoPlay 
-            playsInline 
-            muted 
-            className="w-full h-full object-cover absolute inset-0"
-          />
-          <canvas ref={canvasRef} className="hidden" />
-          {!cameraActive && (
-            <div className="absolute inset-0 flex items-center justify-center bg-neutral-900">
-              <Loader2 size={32} className="animate-spin text-neutral-500" />
+        {/* Left Column */}
+        <div className="flex flex-col gap-4">
+          {/* Camera View */}
+          <div className="relative rounded-2xl overflow-hidden bg-neutral-900 border border-white/5 flex flex-col min-h-[400px] flex-1">
+            <div className="absolute top-4 left-4 z-10 bg-black/50 backdrop-blur-md px-3 py-1 rounded-full text-xs font-mono text-white/80 border border-white/10">
+              LIVE CAMERA
             </div>
-          )}
+            <video 
+              ref={videoRef} 
+              autoPlay 
+              playsInline 
+              muted 
+              className="w-full h-full object-cover absolute inset-0"
+            />
+            <canvas ref={canvasRef} className="hidden" />
+            {!cameraActive && (
+              <div className="absolute inset-0 flex items-center justify-center bg-neutral-900">
+                <Loader2 size={32} className="animate-spin text-neutral-500" />
+              </div>
+            )}
+          </div>
+
+          {/* Inspiration Upload */}
+          <div className="bg-neutral-900 border border-white/5 rounded-2xl p-4 flex flex-col gap-3">
+            <div className="flex items-center gap-4">
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-white mb-1">Inspiration Image</h3>
+                <p className="text-xs text-neutral-400">Upload a photo of an outfit or location you like to use as a reference.</p>
+              </div>
+              {inspirationImage ? (
+                <div className="relative w-16 h-16 rounded-lg overflow-hidden border border-white/10 shrink-0">
+                  <img src={inspirationImage} alt="Inspiration" className="w-full h-full object-cover" />
+                  <button 
+                    onClick={() => {
+                      setInspirationImage(null);
+                      if (fileInputRef.current) fileInputRef.current.value = '';
+                      if (sessionRef.current) {
+                        try {
+                          sessionRef.current.sendClientContent({
+                            turns: [{
+                              role: "user",
+                              parts: [{ text: "System Notification: The user just removed their inspiration image. They no longer have an image uploaded." }]
+                            }],
+                            turnComplete: true
+                          });
+                        } catch (err) {
+                          console.error("Failed to send notification to Live API", err);
+                        }
+                      }
+                    }}
+                    className="absolute top-1 right-1 bg-black/50 rounded-full p-0.5 hover:bg-black/80 text-white"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm font-medium transition-colors shrink-0"
+                >
+                  <Upload size={16} />
+                  Upload
+                </button>
+              )}
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                onChange={handleFileUpload} 
+                accept="image/*" 
+                className="hidden" 
+              />
+            </div>
+            
+            {inspirationImage && (
+              <div className="flex bg-black/50 rounded-lg p-1 border border-white/5">
+                <button 
+                  onClick={() => setInspirationMode('clothing')}
+                  className={`flex-1 text-xs py-1.5 rounded-md transition-colors font-medium ${inspirationMode === 'clothing' ? 'bg-white/20 text-white shadow-sm' : 'text-neutral-400 hover:text-white'}`}
+                >
+                  Use for Clothing
+                </button>
+                <button 
+                  onClick={() => setInspirationMode('background')}
+                  className={`flex-1 text-xs py-1.5 rounded-md transition-colors font-medium ${inspirationMode === 'background' ? 'bg-white/20 text-white shadow-sm' : 'text-neutral-400 hover:text-white'}`}
+                >
+                  Use for Background
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         
         {/* Generated Image View */}
@@ -393,12 +568,32 @@ export default function App() {
               <p className="font-mono text-sm">Designing your outfit...</p>
             </div>
           ) : generatedImage ? (
-            <img 
-              src={generatedImage} 
-              alt="Generated Style" 
-              className="w-full h-full object-cover absolute inset-0"
-              referrerPolicy="no-referrer"
-            />
+            <>
+              <img 
+                src={generatedImage} 
+                alt="Generated Style" 
+                className="w-full h-full object-cover absolute inset-0"
+                referrerPolicy="no-referrer"
+              />
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-6 pt-20 z-10">
+                {characterInfo && (
+                  <div className="text-white">
+                    <div className="flex items-baseline gap-3 mb-1">
+                      <h2 className="text-2xl font-serif font-medium">{characterInfo.name}</h2>
+                      <span className="text-sm font-mono text-neutral-300">{characterInfo.circa}</span>
+                    </div>
+                    <p className="text-sm text-neutral-200 leading-relaxed">{characterInfo.bio}</p>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={downloadImage}
+                className="absolute top-4 right-4 z-10 bg-black/50 hover:bg-black/70 backdrop-blur-md p-3 rounded-full text-white transition-colors border border-white/10"
+                title="Download Image"
+              >
+                <Download size={20} />
+              </button>
+            </>
           ) : (
             <div className="flex flex-col items-center gap-4 text-neutral-500 z-10 p-6 text-center">
               <ImageIcon size={48} className="opacity-50" />
